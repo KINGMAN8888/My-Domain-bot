@@ -1,0 +1,5 @@
+{
+  "name": "DomainRadar AI",
+  "description": "SaaS platform for hunting expired and available domains, evaluating them with AI, and providing a professional dashboard.",
+  "requestFramePermissions": []
+}
