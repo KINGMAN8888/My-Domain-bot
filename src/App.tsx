@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import {
   Radar, LayoutDashboard, Bookmark, Settings, Bell, Search,
-  ExternalLink, Star, TrendingUp, AlertCircle, CheckCircle2,
-  RefreshCw, Wifi, WifiOff, Globe, Zap, Shield, Clock,
+  ExternalLink, Star, AlertCircle, CheckCircle2,
+  RefreshCw, Wifi, WifiOff, Globe, Zap, Clock,
   ChevronUp, ChevronDown, X, Filter, Send, Hash, Activity,
-  BarChart2, ArrowUpRight, Copy, Check, MessageSquare, Bot
+  BarChart2, ArrowUpRight, Copy, Check, MessageSquare, Sparkles
 } from 'lucide-react';
-import { formatDistanceToNow, format } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import { cn } from './lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ type SortDir = 'asc' | 'desc';
 type Tab = 'dashboard' | 'saved' | 'settings';
 
 // ─── API ──────────────────────────────────────────────────────────────────────
-const API = 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL ?? '';
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T | null> {
   try {
@@ -66,6 +66,18 @@ function relativeTime(iso: string) {
   catch { return '—'; }
 }
 
+// ─── Live Clock ───────────────────────────────────────────────────────────────
+function LiveClock() {
+  const [time, setTime] = useState(() => new Date());
+  useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t); }, []);
+  return (
+    <div className="hidden lg:flex items-center gap-1.5 text-xs text-slate-500 font-mono tabular-nums">
+      <Clock className="w-3 h-3" />
+      {time.toUTCString().slice(17, 25)} UTC
+    </div>
+  );
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function ScorePill({ score }: { score: number }) {
@@ -90,28 +102,33 @@ function ScoreBar({ score }: { score: number }) {
   );
 }
 
-function StatCard({ title, value, icon: Icon, delta, loading }: {
-  title: string; value: string | number; icon: any; delta?: string; loading?: boolean;
+function StatCard({ title, value, icon: Icon, delta, loading, accent = 'emerald' }: {
+  title: string; value: string | number; icon: any; delta?: string; loading?: boolean; accent?: 'emerald' | 'blue' | 'purple';
 }) {
+  const colors = {
+    emerald: { icon: 'text-emerald-400', glow: 'from-emerald-500/8', border: 'hover:border-emerald-500/30', delta: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20', iconBg: 'bg-emerald-500/10 border-emerald-500/20' },
+    blue:    { icon: 'text-blue-400',    glow: 'from-blue-500/8',    border: 'hover:border-blue-500/30',    delta: 'text-blue-400    bg-blue-400/10    border-blue-400/20',    iconBg: 'bg-blue-500/10    border-blue-500/20' },
+    purple:  { icon: 'text-purple-400',  glow: 'from-purple-500/8',  border: 'hover:border-purple-500/30',  delta: 'text-purple-400  bg-purple-400/10  border-purple-400/20',  iconBg: 'bg-purple-500/10  border-purple-500/20' },
+  }[accent];
   return (
-    <div className="relative overflow-hidden bg-slate-900/60 border border-slate-800/60 rounded-2xl p-5 flex flex-col gap-3 hover:border-slate-700 transition-colors group">
-      <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+    <div className={cn('relative overflow-hidden bg-slate-900/50 border border-slate-800/60 rounded-2xl p-5 flex flex-col gap-3 transition-all duration-300 group', colors.border)}>
+      <div className={cn('absolute inset-0 bg-gradient-to-br to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300', colors.glow)} />
+      <div className="absolute top-0 right-0 w-32 h-32 opacity-[0.03] rounded-full blur-2xl bg-white translate-x-8 -translate-y-8 group-hover:opacity-[0.06] transition-opacity" />
       <div className="flex justify-between items-start">
-        <div className="p-2.5 bg-slate-800/80 rounded-xl border border-slate-700/50">
-          <Icon className="w-4 h-4 text-emerald-400" />
+        <div className={cn('p-2.5 rounded-xl border', colors.iconBg)}>
+          <Icon className={cn('w-4 h-4', colors.icon)} />
         </div>
         {delta && (
-          <span className="flex items-center gap-1 text-xs font-medium text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 px-2 py-0.5 rounded-full">
-            <ArrowUpRight className="w-3 h-3" />
-            {delta}
+          <span className={cn('flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border', colors.delta)}>
+            <ArrowUpRight className="w-3 h-3" />{delta}
           </span>
         )}
       </div>
       <div>
-        <p className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-1">{title}</p>
+        <p className="text-slate-500 text-[11px] font-semibold uppercase tracking-widest mb-1.5">{title}</p>
         {loading
-          ? <div className="h-8 w-20 bg-slate-800 rounded-lg animate-pulse" />
-          : <p className="text-3xl font-bold text-slate-50 tabular-nums">{value}</p>
+          ? <div className="h-8 w-24 rounded-lg shimmer-bg" />
+          : <p className="text-3xl font-bold text-slate-50 tabular-nums tracking-tight animate-fade-in">{value}</p>
         }
       </div>
     </div>
@@ -267,7 +284,12 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#080c14] text-slate-100 flex font-sans antialiased selection:bg-emerald-500/30">
+    <div className="min-h-screen bg-[#060a12] text-slate-100 flex font-sans antialiased selection:bg-emerald-500/30">
+      {/* Animated mesh background */}
+      <div className="fixed inset-0 pointer-events-none" aria-hidden="true">
+        <div className="absolute inset-0" style={{backgroundImage:'radial-gradient(circle at 20% 20%, rgba(16,185,129,0.04) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(59,130,246,0.03) 0%, transparent 50%)'}} />
+        <div className="absolute inset-0 opacity-[0.018]" style={{backgroundImage:'linear-gradient(rgba(148,163,184,1) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,1) 1px, transparent 1px)', backgroundSize:'40px 40px'}} />
+      </div>
 
       {/* ── Toast Container ──────────────────────────────────── */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 w-80">
@@ -277,15 +299,19 @@ export default function App() {
       </div>
 
       {/* ── Sidebar ──────────────────────────────────────────── */}
-      <aside className="w-60 shrink-0 border-r border-slate-800/60 bg-slate-950/80 backdrop-blur-xl flex flex-col fixed h-full z-10">
+      <aside className="w-60 shrink-0 border-r border-slate-800/50 bg-[#070b13]/90 backdrop-blur-xl flex flex-col fixed h-full z-10">
         {/* Logo */}
-        <div className="h-16 flex items-center px-5 border-b border-slate-800/60 gap-3 shrink-0">
-          <div className="p-1.5 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-lg shadow-lg shadow-emerald-500/20">
+        <div className="h-16 flex items-center px-5 border-b border-slate-800/50 gap-3 shrink-0">
+          <div className="relative p-1.5 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-xl shadow-lg shadow-emerald-500/30">
             <Radar className="w-5 h-5 text-white" />
+            <div className="absolute inset-0 rounded-xl blur-sm bg-emerald-500/40 -z-10" />
           </div>
           <div>
-            <span className="font-bold text-base tracking-tight text-slate-50">DomainRadar</span>
-            <span className="text-emerald-400 font-bold text-base">.ai</span>
+            <span className="font-bold text-base tracking-tight text-white">DomainRadar</span>
+            <span className="text-gradient font-bold text-base">.ai</span>
+          </div>
+          <div className="ml-auto">
+            <span className="text-[9px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 px-1.5 py-0.5 rounded-full">v2</span>
           </div>
         </div>
 
@@ -297,16 +323,16 @@ export default function App() {
               key={item.id}
               onClick={() => setTab(item.id)}
               className={cn(
-                'w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all',
+                'w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-all duration-200',
                 tab === item.id
-                  ? 'bg-emerald-500/10 text-emerald-400 shadow-sm'
-                  : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+                  ? 'bg-emerald-500/12 text-emerald-400 border border-emerald-500/20 shadow-sm shadow-emerald-500/10'
+                  : 'text-slate-500 hover:bg-slate-800/40 hover:text-slate-200 border border-transparent'
               )}
             >
-              <item.icon className="w-4 h-4 shrink-0" />
+              <item.icon className={cn('w-4 h-4 shrink-0 transition-transform duration-200', tab === item.id && 'scale-110')} />
               {item.label}
               {item.badge ? (
-                <span className="ml-auto text-[10px] font-bold bg-emerald-500 text-slate-950 rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
+                <span className="ml-auto text-[10px] font-bold bg-emerald-500 text-slate-950 rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
                   {item.badge}
                 </span>
               ) : null}
@@ -317,29 +343,31 @@ export default function App() {
           <div className="pt-4">
             <p className="text-[10px] uppercase tracking-widest text-slate-600 font-semibold px-3 pb-2">Status</p>
             <div className={cn(
-              'flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-medium border',
-              online === true  ? 'bg-emerald-500/5  text-emerald-400 border-emerald-500/15' :
-              online === false ? 'bg-amber-500/5    text-amber-400   border-amber-500/15'   :
+              'flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold border transition-all',
+              online === true  ? 'bg-emerald-500/8  text-emerald-400 border-emerald-500/20' :
+              online === false ? 'bg-amber-500/8    text-amber-400   border-amber-500/20'   :
                                  'bg-slate-800/50   text-slate-500   border-slate-700/50'
             )}>
-              {online === true  ? <Wifi    className="w-3.5 h-3.5" /> :
-               online === false ? <WifiOff className="w-3.5 h-3.5" /> :
-                                  <Activity className="w-3.5 h-3.5 animate-pulse" />}
-              {online === true ? 'API Connected' : online === false ? 'Demo Mode' : 'Connecting…'}
+              <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', online === true ? 'bg-emerald-400 animate-pulse' : online === false ? 'bg-amber-400' : 'bg-slate-600 animate-pulse')} />
+              {online === true  ? <Wifi    className="w-3 h-3" /> :
+               online === false ? <WifiOff className="w-3 h-3" /> :
+                                  <Activity className="w-3 h-3" />}
+              {online === true ? 'Live API' : online === false ? 'Demo Mode' : 'Connecting…'}
             </div>
           </div>
         </nav>
 
         {/* User */}
-        <div className="p-3 border-t border-slate-800/60 shrink-0">
-          <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-900/60 border border-slate-800/50">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center text-slate-950 font-bold text-xs shrink-0">
-              AD
+        <div className="p-3 border-t border-slate-800/50 shrink-0">
+          <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-900/50 border border-slate-800/50 hover:border-slate-700/60 transition-colors group">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 via-teal-400 to-cyan-500 flex items-center justify-center text-slate-950 font-bold text-xs shrink-0 shadow-lg shadow-emerald-500/20">
+              <Sparkles className="w-3.5 h-3.5" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-slate-100 truncate">Admin</p>
-              <p className="text-xs text-slate-500 truncate">Pro Plan · Active</p>
+              <p className="text-xs text-emerald-500/70 truncate font-mono">Pro · Active</p>
             </div>
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
           </div>
         </div>
       </aside>
@@ -348,12 +376,15 @@ export default function App() {
       <main className="flex-1 ml-60 flex flex-col min-h-screen">
 
         {/* Topbar */}
-        <header className="h-16 border-b border-slate-800/60 bg-[#080c14]/80 backdrop-blur-md sticky top-0 z-10 flex items-center justify-between px-6 shrink-0">
-          <div className="flex items-center gap-2">
-            <h1 className="text-base font-semibold text-slate-200 capitalize">{tab.replace('-', ' ')}</h1>
-            {online === false && (
-              <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-medium">Demo</span>
-            )}
+        <header className="h-16 border-b border-slate-800/50 bg-[#060a12]/85 backdrop-blur-xl sticky top-0 z-10 flex items-center justify-between px-6 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-bold text-slate-100 capitalize tracking-tight">{tab === 'dashboard' ? 'Dashboard' : tab === 'saved' ? 'Saved Domains' : 'Settings'}</h1>
+              {online === false && (
+                <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-full font-semibold">Demo</span>
+              )}
+            </div>
+            <LiveClock />
           </div>
 
           <div className="flex items-center gap-3">
@@ -428,7 +459,7 @@ export default function App() {
         )}
 
         {/* Page content */}
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-6 page-content">
 
           {/* ══ DASHBOARD ══════════════════════════════════════ */}
           {tab === 'dashboard' && (
@@ -449,13 +480,13 @@ export default function App() {
 
               {/* Stats row */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <StatCard title="Total Scanned"           value={stats?.total.toLocaleString() ?? '0'} icon={Radar}     delta="+12%"  loading={loading} />
-                <StatCard title="Golden Opportunities ≥80" value={stats?.golden ?? '0'}               icon={Star}      delta="+5%"   loading={loading} />
-                <StatCard title="Discovered Today"         value={stats?.today  ?? '0'}               icon={Activity}               loading={loading} />
+                <StatCard title="Total Scanned"           value={stats?.total.toLocaleString() ?? '0'} icon={Radar}    delta="+12%" loading={loading} accent="emerald" />
+                <StatCard title="Golden Opportunities ≥80" value={stats?.golden ?? '0'}               icon={Star}     delta="+5%"  loading={loading} accent="blue" />
+                <StatCard title="Discovered Today"         value={stats?.today  ?? '0'}               icon={Activity}             loading={loading} accent="purple" />
               </div>
 
               {/* Table */}
-              <div className="bg-slate-900/40 border border-slate-800/60 rounded-2xl overflow-hidden">
+              <div className="bg-slate-900/40 border border-slate-800/50 rounded-2xl overflow-hidden shadow-xl shadow-black/20">
                 <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800/60">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -499,11 +530,11 @@ export default function App() {
                             <p>No domains found.</p>
                             {online && <p className="text-xs mt-1">Click <strong className="text-emerald-400">Scan Now</strong> to discover golden domains.</p>}
                           </td></tr>
-                        ) : sorted.map(d => {
+                        ) : sorted.map((d, idx) => {
                           const tld = d.tld || ('.' + d.domain.split('.').slice(1).join('.'));
                           const len = d.name_len || d.domain.split('.')[0].length;
                           return (
-                            <tr key={d.domain} className="border-b border-slate-800/30 hover:bg-slate-800/20 transition-colors group">
+                            <tr key={d.domain} className="border-b border-slate-800/25 hover:bg-emerald-500/[0.03] transition-all duration-150 group" style={{ animationDelay: `${idx * 30}ms` }}>
                               <td className="px-5 py-3.5">
                                 <div className="flex items-center gap-2">
                                   <span className="font-mono text-sm font-semibold text-slate-200">{d.domain}</span>
@@ -784,9 +815,10 @@ export default function App() {
 
       <style>{`
         @keyframes slideIn {
-          from { opacity: 0; transform: translateY(8px); }
+          from { opacity: 0; transform: translateY(10px); }
           to   { opacity: 1; transform: translateY(0);   }
         }
+        .page-content > * { animation: fadeIn 0.2s ease both; }
       `}</style>
     </div>
   );

@@ -20,28 +20,33 @@ import sys
 import threading
 import json
 import datetime
-import requests as http_requests
+from typing import Any
+import requests as http_requests  # type: ignore[import-untyped]
 
 # تحميل ملف .env تلقائياً
 try:
-    from dotenv import load_dotenv
+    from dotenv import load_dotenv  # type: ignore[import-untyped]
     load_dotenv()
 except ImportError:
     pass
+
+_start_time = time.time()
 
 # =============================================================================
 # ⚙️ CONFIGURATION
 # =============================================================================
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID",   "")
-DB_NAME            = "domains.db"
+DB_NAME            = os.environ.get("DB_NAME", "domains.db")
 API_HOST           = "0.0.0.0"
-API_PORT           = 8000
-WORKER_INTERVAL    = 3600  # ثانية (ساعة واحدة)
-MIN_SCORE_ALERT    = 80    # الحد الأدنى لإرسال تنبيه تيليجرام
+API_PORT           = int(os.environ.get("PORT", 8000))
+WORKER_INTERVAL    = int(os.environ.get("WORKER_INTERVAL", 3600))
+MIN_SCORE_ALERT    = int(os.environ.get("MIN_SCORE_ALERT", 80))
+DASHBOARD_URL      = os.environ.get("DASHBOARD_URL", "http://localhost:3000")
+CORS_ORIGINS       = [o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",")]
 
-GOLDEN_KEYWORDS = ["ai", "tech", "crypto", "pay", "app", "hub", "web", "data", "cloud", "nexus"]
-TLD_SCORES      = {".com": 25, ".ai": 20, ".io": 15, ".net": 10}
+GOLDEN_KEYWORDS: list[str] = ["ai", "tech", "crypto", "pay", "app", "hub", "web", "data", "cloud", "nexus"]
+TLD_SCORES: dict[str, int] = {".com": 25, ".ai": 20, ".io": 15, ".net": 10}
 
 # =============================================================================
 # 🗄️ DATABASE
@@ -82,7 +87,7 @@ def save_domain(domain: str, score: int, tld: str, name_len: int, keywords: list
         conn.close()
 
 
-def get_all_domains(limit: int = 100, search: str = ""):
+def get_all_domains(limit: int = 100, search: str = "") -> list[dict[str, Any]]:
     if not os.path.exists(DB_NAME):
         return []
     conn = sqlite3.connect(DB_NAME)
@@ -97,9 +102,9 @@ def get_all_domains(limit: int = 100, search: str = ""):
         c.execute("SELECT * FROM notified_domains ORDER BY date_added DESC, score DESC LIMIT ?", (limit,))
     rows = c.fetchall()
     conn.close()
-    result = []
+    result: list[dict[str, Any]] = []
     for row in rows:
-        d = dict(row)
+        d: dict[str, Any] = dict(row)
         try:
             d["keywords"] = json.loads(d.get("keywords") or "[]")
         except Exception:
@@ -108,7 +113,7 @@ def get_all_domains(limit: int = 100, search: str = ""):
     return result
 
 
-def get_stats():
+def get_stats() -> dict[str, int]:
     if not os.path.exists(DB_NAME):
         return {"total": 0, "golden": 0, "today": 0}
     conn = sqlite3.connect(DB_NAME)
@@ -128,27 +133,27 @@ def get_stats():
 # 🧠 SCORING ALGORITHM
 # =============================================================================
 
-def calculate_score(domain: str) -> tuple[int, list]:
-    score = 50
-    found_keywords = []
-    parts = domain.lower().split(".")
+def calculate_score(domain: str) -> tuple[int, list[str]]:
+    score: int = 50
+    found_keywords: list[str] = []
+    parts: list[str] = domain.lower().split(".")
     if len(parts) < 2:
         return 0, []
-    name = parts[0]
-    tld  = "." + ".".join(parts[1:])
-    score += TLD_SCORES.get(tld, 0)
+    name: str = parts[0]
+    tld: str  = "." + ".".join(parts[1:])  # type: ignore[misc]
+    score = score + int(TLD_SCORES.get(tld, 0))
     if len(name) <= 4:
-        score += 25
+        score = score + 25
     elif len(name) <= 7:
-        score += 15
+        score = score + 15
     for kw in GOLDEN_KEYWORDS:
         if kw in name:
-            score += 10
+            score = score + 10  # type: ignore[operator]
             found_keywords.append(kw)
     if "-" in name:
-        score -= 30
+        score = score - 30  # type: ignore[operator]
     if any(ch.isdigit() for ch in name):
-        score -= 20
+        score = score - 20  # type: ignore[operator]
     return max(0, min(score, 100)), found_keywords
 
 
@@ -206,10 +211,11 @@ def send_telegram_alert(domain: str, score: int, keywords: list) -> bool:
         f"🚨 <b>Golden Domain Found!</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🌐 <code>{domain}</code>\n"
-        f"⭐ Score: <b>{score}/100</b>  {score_bar}\n"
+        f"⭐ Score: <b>{score}/100</b>\n"
+        f"📊 {score_bar}\n"
         f"🏷️ Extension: <b>{tld}</b>\n"
         f"🔑 Keywords: {kw_text}\n"
-        f"✅ Status: Available (DNS)\n"
+        f"✅ Status: <b>Available</b> (DNS verified)\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"🛒 <a href=\"{buy_url}\">Register on Namecheap</a>"
     )
@@ -217,7 +223,7 @@ def send_telegram_alert(domain: str, score: int, keywords: list) -> bool:
     inline_kb = {
         "inline_keyboard": [[
             {"text": "🛒 Buy Now", "url": buy_url},
-            {"text": "📊 Dashboard", "url": "http://localhost:3000"}
+            {"text": "📊 Dashboard", "url": DASHBOARD_URL}
         ]]
     }
 
@@ -247,7 +253,7 @@ def _score_emoji(score: int) -> str:
 # 🤖 TELEGRAM BOT — Command Handlers
 # =============================================================================
 
-_bot_offset = 0
+_bot_offset: int = 0
 _last_scan_result = {}  # نتيجة آخر فحص
 
 
@@ -302,7 +308,9 @@ def handle_scan(chat_id):
                 status = "✅ Saved" if saved else "♻️ Already known"
             else:
                 status = "⛔ Registered"
-            results_text.append(f"  {_score_emoji(score)} <code>{domain}</code> — {score}/100 {status}")
+            results_text.append(  # type: ignore[arg-type]
+                f"  {_score_emoji(score)} <code>{domain}</code> — {score}/100 {status}"
+            )
 
     _last_scan_result = {"scanned": len(domains_list), "saved": saved_count}
 
@@ -334,7 +342,7 @@ def handle_list(chat_id):
         kws   = ", ".join(d.get("keywords") or []) or "—"
         dt    = d.get("date_added", "")[:10]
         buy   = f"https://www.namecheap.com/domains/registration/results/?domain={d['domain']}"
-        lines.append(
+        lines.append(  # type: ignore[arg-type]
             f"{_score_emoji(score)} <code>{d['domain']}</code>\n"
             f"   ⭐ {score}/100  {_score_bar(score)}\n"
             f"   🔑 {kws}  📅 {dt}\n"
@@ -352,13 +360,13 @@ def handle_top(chat_id):
         send_message(chat_id, "📭 No domains yet. Run /scan first!")
         return
 
-    top5 = sorted(all_d, key=lambda x: x["score"], reverse=True)[:5]
+    top5: list[dict[str, Any]] = list(sorted(all_d, key=lambda x: int(x["score"]), reverse=True))[:5]  # type: ignore[misc]
     lines = []
     medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
     for i, d in enumerate(top5):
         kws = ", ".join(d.get("keywords") or []) or "—"
         buy = f"https://www.namecheap.com/domains/registration/results/?domain={d['domain']}"
-        lines.append(
+        lines.append(  # type: ignore[arg-type]
             f"{medals[i]} <code>{d['domain']}</code>\n"
             f"   ⭐ <b>{d['score']}/100</b>  {_score_bar(d['score'])}\n"
             f"   🔑 {kws}\n"
@@ -389,6 +397,8 @@ def handle_settings(chat_id):
     """عرض الإعدادات الحالية."""
     tlds  = ", ".join(TLD_SCORES.keys())
     kws   = ", ".join(GOLDEN_KEYWORDS)
+    uptime = int(time.time() - _start_time)
+    h, m = divmod(uptime // 60, 60)
     msg = (
         f"⚙️ <b>Current Configuration</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
@@ -397,7 +407,8 @@ def handle_settings(chat_id):
         f"🔑 Keywords: <code>{kws}</code>\n"
         f"⏱️ Scan Interval: <b>{WORKER_INTERVAL // 60} min</b>\n"
         f"🌐 API: <b>http://localhost:{API_PORT}</b>\n"
-        f"💻 Dashboard: <b>http://localhost:3000</b>\n"
+        f"💻 Dashboard: <b>{DASHBOARD_URL}</b>\n"
+        f"⏲️ Uptime: <b>{h}h {m}m</b>\n"
         f"━━━━━━━━━━━━━━━━━━\n"
         f"📡 Telegram Chat ID: <code>{TELEGRAM_CHAT_ID}</code>"
     )
@@ -415,6 +426,8 @@ def handle_help(chat_id):
         f"🏆 /top — Top 5 highest-scored domains\n"
         f"📊 /stats — Database statistics\n"
         f"⚙️ /settings — Show bot configuration\n"
+        f"🔎 /check domain.com — Check a specific domain\n"
+        f"🗑️ /delete domain.com — Remove domain from DB\n"
         f"🆘 /help — Show this message\n\n"
         f"<b>Score Guide:</b>\n"
         f"🏆 90-100: Perfect golden domain\n"
@@ -430,30 +443,88 @@ def handle_help(chat_id):
     send_message(chat_id, msg)
 
 
+def handle_check(chat_id, domain: str):
+    """فحص دومين محدد."""
+    domain = domain.strip().lower().lstrip('.')
+    if not domain or '.' not in domain:
+        send_message(chat_id, "❌ Please provide a valid domain.\nExample: <code>/check payai.com</code>")
+        return
+    send_message(chat_id, f"🔎 Checking <code>{domain}</code>…")
+    score, keywords = calculate_score(domain)
+    available = is_domain_available(domain)
+    kw_text = " • ".join([f"#{k}" for k in keywords]) if keywords else "—"
+    tld = "." + domain.split(".", 1)[-1]
+    buy_url = f"https://www.namecheap.com/domains/registration/results/?domain={domain}"
+    status_emoji = "✅" if available else "⛔"
+    status_text  = "Available" if available else "Registered / Taken"
+    msg = (
+        f"🔎 <b>Domain Check Result</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🌐 <code>{domain}</code>\n"
+        f"⭐ Score: <b>{score}/100</b>\n"
+        f"📊 {_score_bar(score)}\n"
+        f"🏷️ Extension: <b>{tld}</b>\n"
+        f"🔑 Keywords: {kw_text}\n"
+        f"{status_emoji} Status: <b>{status_text}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━"
+    )
+    kb = None
+    if available:
+        kb = {"inline_keyboard": [[{"text": "🛒 Register on Namecheap", "url": buy_url}]]}
+    send_message(chat_id, msg, reply_markup=kb)
+
+
+def handle_delete(chat_id, domain: str):
+    """حذف دومين من قاعدة البيانات."""
+    domain = domain.strip().lower()
+    if not domain or '.' not in domain:
+        send_message(chat_id, "❌ Please provide a valid domain.\nExample: <code>/delete payai.com</code>")
+        return
+    if not os.path.exists(DB_NAME):
+        send_message(chat_id, "📭 Database is empty.")
+        return
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("DELETE FROM notified_domains WHERE domain = ?", (domain,))
+    deleted = c.rowcount
+    conn.commit()
+    conn.close()
+    if deleted:
+        send_message(chat_id, f"🗑️ <code>{domain}</code> has been removed from the database.")
+    else:
+        send_message(chat_id, f"❓ <code>{domain}</code> was not found in the database.")
+
+
 def dispatch_command(chat_id: int, text: str, username: str):
     """توجيه الأمر للـ handler المناسب."""
-    cmd = text.strip().lower().split()[0] if text.strip() else ""
-    # إزالة اسم البوت من الأمر (@BotName)
-    cmd = cmd.split("@")[0]
+    parts = text.strip().split()
+    if not parts:
+        return
+    raw_cmd = parts[0].lower().split("@")[0]
+    args: list[str] = parts[1:]  # type: ignore[misc]
 
-    if cmd in ("/start", "👋 start"):
+    if raw_cmd in ("/start", "start"):
         handle_start(chat_id, username)
-    elif cmd in ("/scan", "🔍 scan now"):
+    elif raw_cmd in ("/scan", "🔍 scan now") or "scan now" in text.lower():
         handle_scan(chat_id)
-    elif cmd in ("/list", "📋 list domains"):
+    elif raw_cmd in ("/list", "📋 list domains") or "list domains" in text.lower():
         handle_list(chat_id)
-    elif cmd in ("/top", "🏆 top 5"):
+    elif raw_cmd in ("/top", "🏆 top 5") or "top 5" in text.lower():
         handle_top(chat_id)
-    elif cmd in ("/stats", "📊 stats"):
+    elif raw_cmd in ("/stats", "📊 stats") or text.lower().strip() == "📊 stats":
         handle_stats(chat_id)
-    elif cmd in ("/settings", "⚙️ settings"):
+    elif raw_cmd in ("/settings", "⚙️ settings") or "settings" in text.lower():
         handle_settings(chat_id)
-    elif cmd in ("/help", "🆘 help"):
+    elif raw_cmd in ("/help", "🆘 help") or text.lower().strip() == "🆘 help":
         handle_help(chat_id)
+    elif raw_cmd == "/check":
+        handle_check(chat_id, " ".join(args))
+    elif raw_cmd == "/delete":
+        handle_delete(chat_id, " ".join(args))
     else:
         send_message(
             chat_id,
-            f"❓ Unknown command: <code>{text[:50]}</code>\n\nType /help to see available commands.",
+            f"❓ Unknown command: <code>{text[:50]}</code>\n\nType /help to see all available commands.",  # type: ignore[index]
         )
 
 
@@ -577,7 +648,7 @@ def run_worker():
                     saved = save_domain(domain, score, tld, len(name), keywords)
                     if saved:
                         send_telegram_alert(domain, score, keywords)
-                        found_count += 1
+                        found_count = found_count + 1  # type: ignore[operator]
                         print(f"  [Worker] 🎯 Saved: {domain} | Score: {score}")
                     else:
                         print(f"  [Worker] ♻️  Already known: {domain}")
@@ -594,18 +665,25 @@ def run_worker():
 # 🌐 FASTAPI
 # =============================================================================
 try:
-    from fastapi import FastAPI
-    from fastapi.middleware.cors import CORSMiddleware
-    import uvicorn
+    from fastapi import FastAPI  # type: ignore[import-untyped]
+    from fastapi.middleware.cors import CORSMiddleware  # type: ignore[import-untyped]
+    import uvicorn  # type: ignore[import-untyped]
     _FASTAPI_AVAILABLE = True
 except ImportError:
     _FASTAPI_AVAILABLE = False
 
 if _FASTAPI_AVAILABLE:
-    app = FastAPI(title="DomainRadar AI", version="2.0.0")
+    app = FastAPI(
+        title="DomainRadar AI",
+        version="2.0.0",
+        description="Domain discovery & scoring API with Telegram bot integration.",
+        docs_url="/docs",
+        redoc_url="/redoc",
+    )
+    _cors_origins = CORS_ORIGINS if CORS_ORIGINS != ["*"] else ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"], allow_credentials=True,
+        allow_origins=_cors_origins, allow_credentials=True,
         allow_methods=["*"], allow_headers=["*"],
     )
 
@@ -657,13 +735,63 @@ if _FASTAPI_AVAILABLE:
             return {"connected": True, "name": me["result"].get("first_name"), "username": me["result"].get("username")}
         return {"connected": False, "reason": "API call failed"}
 
+    @app.get("/api/health")
+    def api_health():
+        uptime = int(time.time() - _start_time)
+        bot_ok = False
+        if TELEGRAM_BOT_TOKEN:
+            me = _tg_post("getMe", {})
+            bot_ok = bool(me and me.get("ok"))
+        return {
+            "status": "ok",
+            "version": "2.0.0",
+            "uptime_seconds": uptime,
+            "database": DB_NAME,
+            "bot_connected": bot_ok,
+            "min_score_alert": MIN_SCORE_ALERT,
+        }
+
+    @app.get("/api/domains/{domain}")
+    def api_domain_detail(domain: str):
+        if not os.path.exists(DB_NAME):
+            return None
+        conn = sqlite3.connect(DB_NAME)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("SELECT * FROM notified_domains WHERE domain = ?", (domain,))
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            from fastapi import HTTPException  # type: ignore[import-untyped]
+            raise HTTPException(status_code=404, detail="Domain not found")
+        d2: dict[str, Any] = dict(row)
+        try:
+            d2["keywords"] = json.loads(d2.get("keywords") or "[]")
+        except Exception:
+            d2["keywords"] = []
+        return d2
+
+    @app.delete("/api/domains/{domain}")
+    def api_domain_delete(domain: str):
+        if not os.path.exists(DB_NAME):
+            return {"deleted": False}
+        conn = sqlite3.connect(DB_NAME)
+        c = conn.cursor()
+        c.execute("DELETE FROM notified_domains WHERE domain = ?", (domain,))
+        deleted = c.rowcount > 0
+        conn.commit()
+        conn.close()
+        return {"deleted": deleted, "domain": domain}
+
 
 def run_api():
     if not _FASTAPI_AVAILABLE:
-        print("❌ FastAPI/uvicorn not installed. Run:\n   python -m pip install fastapi uvicorn requests python-dotenv --user")
+        print("❌ FastAPI/uvicorn not installed. Run:\n   pip install fastapi uvicorn requests python-dotenv")
         sys.exit(1)
     init_db()
-    print(f"\n🌐 DomainRadar AI API starting on http://localhost:{API_PORT}")
+    print(f"\n🌐 DomainRadar AI API → http://localhost:{API_PORT}")
+    print(f"📖 API Docs         → http://localhost:{API_PORT}/docs")
+    print(f"💻 Dashboard        → {DASHBOARD_URL}\n")
     uvicorn.run(app, host=API_HOST, port=API_PORT, log_level="info")
 
 

@@ -1,0 +1,45 @@
+services:
+  backend:
+    image: python:3.12-slim
+    container_name: domainradar-backend
+    working_dir: /app
+    volumes:
+      - .:/app
+      - db-data:/app/data
+    command: >
+      sh -c "pip install -r requirements.txt -q &&
+             DB_NAME=/app/data/domains.db python backend.py both"
+    env_file: .env
+    environment:
+      - DB_NAME=/app/data/domains.db
+      - PORT=8000
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    image: node:20-alpine
+    container_name: domainradar-frontend
+    working_dir: /app
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: >
+      sh -c "npm ci --prefer-offline &&
+             npm run build &&
+             npx serve dist -l 3000"
+    environment:
+      - VITE_API_URL=http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  db-data:
